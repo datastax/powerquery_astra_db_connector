@@ -2,6 +2,30 @@
 [Version = "0.1.0"]
 section astra_db_connector;
 
+// library (navigation table)
+Table.ToNavigationTable = (
+    table as table,
+    keyColumns as list,
+    nameColumn as text,
+    dataColumn as text,
+    itemKindColumn as text,
+    itemNameColumn as text,
+    isLeafColumn as text
+) as table =>
+    let
+        tableType = Value.Type(table),
+        newTableType = Type.AddTableKey(tableType, keyColumns, true) meta 
+        [
+            NavigationTable.NameColumn = nameColumn, 
+            NavigationTable.DataColumn = dataColumn,
+            NavigationTable.ItemKindColumn = itemKindColumn, 
+            Preview.DelayColumn = itemNameColumn, 
+            NavigationTable.IsLeafColumn = isLeafColumn
+        ],
+        navigationTable = Value.ReplaceType(table, newTableType)
+    in
+        navigationTable;
+
 // Url path handling
 makeRestAPIUrl = (databaseID as text, region as text, optional subpath as text) as text =>
     let
@@ -16,10 +40,58 @@ getWholeContents = (databaseID as text, region as text) =>
         token = Extension.CurrentCredential()[Key],
         keyspacesUrl = makeRestAPIUrl(databaseID, region, "schemas/keyspaces"),
         keyspacesTable = GetPage(keyspacesUrl, token),
-        removed = Table.RemoveColumns(keyspacesTable,{"datacenters"}),
-        renamed = Table.RenameColumns(removed,{{"name", "Keyspace"}})
+        // in the output from REST API, certain entries only have "name": system keyspaces, we discard them.
+        cleanedKeyspacesTable = Table.RemoveRowsWithErrors(keyspacesTable, {"datacenters"}),
+        usableKeyspacesTable = Table.SelectRows(cleanedKeyspacesTable, each "datacenters" <> null),
+        removed = Table.RemoveColumns(usableKeyspacesTable,{"datacenters"}),
+        renamed = Table.RenameColumns(removed,{{"name", "Keyspace"}}),
+        // Add Data as a calculated column
+        withData = Table.AddColumn(renamed, "Data", each astra_db_connector.getTablesForKeyspace(databaseID, region, [Keyspace])),
+        // Add ItemKind and ItemName as fixed text values
+        withItemKind = Table.AddColumn(withData, "ItemKind", each "View", type text),
+        withItemName = Table.AddColumn(withItemKind, "ItemName", each "Table", type text),
+        // Indicate that the node should not be expandable
+        withIsLeaf = Table.AddColumn(withItemName, "IsLeaf", each false, type logical),
+        // Generate the nav table
+        navTable = Table.ToNavigationTable(withIsLeaf, {"Keyspace"}, "Keyspace", "Data", "ItemKind", "ItemName", "IsLeaf")
     in
-        renamed
+        navTable
+;
+
+astra_db_connector.getTablesForKeyspace = (databaseID as text, region as text, keyspace as text) =>
+    let
+        token = Extension.CurrentCredential()[Key],
+        tablesUrl = makeRestAPIUrl(databaseID, region, "schemas/keyspaces/" & keyspace & "/tables"),
+        tablesTable = GetPage(tablesUrl, token),
+        removed = Table.SelectColumns(tablesTable, {"name"}),
+        renamed = Table.RenameColumns(removed,{{"name", "Table"}}),
+        // Add Data as a calculated column
+        withData = Table.AddColumn(renamed, "Data", each astra_db_connector.getDataForTable(databaseID, region, keyspace, [Table])),
+        // Add ItemKind and ItemName as fixed text values
+        withItemKind = Table.AddColumn(withData, "ItemKind", each "Table", type text),
+        withItemName = Table.AddColumn(withItemKind, "ItemName", each "Table", type text),
+        // Indicate that the node should not be expandable
+        withIsLeaf = Table.AddColumn(withItemName, "IsLeaf", each true, type logical),
+        // Generate the nav table
+        navTable = Table.ToNavigationTable(withIsLeaf, {"Table"}, "Table", "Data", "ItemKind", "ItemName", "IsLeaf")
+    in
+        navTable
+;
+
+// data retrieval from a table
+testData = {
+    "Fake",
+    "Test",
+    "Hardcoded",
+    "Data"
+};
+astra_db_connector.getDataForTable = (databaseID as text, region as text, keyspace as text, tableName as text) =>
+    let
+        token = Extension.CurrentCredential()[Key],
+        tableUrl = makeRestAPIUrl(databaseID, region, "keyspaces/" & keyspace & "/" & tableName & "/rows"),
+        dataTable = GetPage(tableUrl, token)
+    in
+        dataTable
 ;
 
 // Request and parsing
@@ -37,12 +109,6 @@ GetPage = (url as text, astraToken as text) as table =>
 
 [DataSource.Kind="astra_db_connector", Publish="astra_db_connector.Publish"]
 shared astra_db_connector.Contents = getWholeContents;
-// shared astra_db_connector.Contents = (optional message as text) =>
-//     let
-//         _message = if (message <> null) then message else "(no message)",
-//         a = "Hello from astra_db_connector: " & _message
-//     in
-//         a;
 
 // Data Source Kind description
 astra_db_connector = [
