@@ -2,7 +2,12 @@
 [Version = "0.1.0"]
 section astra_db_connector;
 
+// Settings
+// set to empty string (no '?' to leave unspecified, i.e. server defaults)
+tableUrlPageSizeSpecifier = ""; // "?page-size=2";
+
 // library (navigation table)
+// (see: https://learn.microsoft.com/en-us/power-query/helper-functions#tabletonavigationtable)
 Table.ToNavigationTable = (
     table as table,
     keyColumns as list,
@@ -37,9 +42,8 @@ makeRestAPIUrl = (databaseID as text, region as text, optional subpath as text) 
 // Schema handling
 getWholeContents = (databaseID as text, region as text) =>
     let
-        token = Extension.CurrentCredential()[Key],
         keyspacesUrl = makeRestAPIUrl(databaseID, region, "schemas/keyspaces"),
-        keyspacesTable = GetPage(keyspacesUrl, token),
+        keyspacesTable = GetSinglePage(keyspacesUrl),
         // in the output from REST API, certain entries only have "name": system keyspaces, we discard them.
         cleanedKeyspacesTable = Table.RemoveRowsWithErrors(keyspacesTable, {"datacenters"}),
         usableKeyspacesTable = Table.SelectRows(cleanedKeyspacesTable, each "datacenters" <> null),
@@ -60,9 +64,8 @@ getWholeContents = (databaseID as text, region as text) =>
 
 astra_db_connector.getTablesForKeyspace = (databaseID as text, region as text, keyspace as text) =>
     let
-        token = Extension.CurrentCredential()[Key],
         tablesUrl = makeRestAPIUrl(databaseID, region, "schemas/keyspaces/" & keyspace & "/tables"),
-        tablesTable = GetPage(tablesUrl, token),
+        tablesTable = GetSinglePage(tablesUrl),
         removed = Table.SelectColumns(tablesTable, {"name"}),
         renamed = Table.RenameColumns(removed,{{"name", "Table"}}),
         // Add Data as a calculated column
@@ -79,36 +82,91 @@ astra_db_connector.getTablesForKeyspace = (databaseID as text, region as text, k
 ;
 
 // data retrieval from a table
-testData = {
-    "Fake",
-    "Test",
-    "Hardcoded",
-    "Data"
-};
 astra_db_connector.getDataForTable = (databaseID as text, region as text, keyspace as text, tableName as text) =>
     let
-        token = Extension.CurrentCredential()[Key],
-        tableUrl = makeRestAPIUrl(databaseID, region, "keyspaces/" & keyspace & "/" & tableName & "/rows"),
-        dataTable = GetPage(tableUrl, token)
+        tableUrl = makeRestAPIUrl(databaseID, region, "keyspaces/" & keyspace & "/" & tableName & "/rows" & tableUrlPageSizeSpecifier),
+        dataTable = GetAllPagesByNextLink(tableUrl)
     in
         dataTable
 ;
 
-// Request and parsing
-GetPage = (url as text, astraToken as text) as table =>
+// Pagination machinery
+// (see: https://learn.microsoft.com/en-us/power-query/samples/trippin/5-paging/readme)
+
+// The getNextPage function takes a single argument and is expected to return a nullable table
+Table.GenerateByPage = (getNextPage as function) as table =>
     let
+        listOfPages = List.Generate(
+            () => getNextPage(null),            // get the first page of data
+            (lastPage) => lastPage <> null,     // stop when the function returns null
+            (lastPage) => getNextPage(lastPage) // pass the previous page to the next function call
+        ),
+        // concatenate the pages together
+        tableOfPages = Table.FromList(listOfPages, Splitter.SplitByNothing(), {"Column1"}),
+        firstRow = tableOfPages{0}?
+    in
+        // if we didn't get back any pages of data, return an empty table
+        // otherwise set the table type based on the columns of the first page
+        if (firstRow = null) then
+            Table.FromRows({})
+    // check for empty first table
+        else if (Table.IsEmpty(firstRow[Column1])) then
+            firstRow[Column1]
+        else
+            Value.ReplaceType(
+                Table.ExpandTableColumn(tableOfPages, "Column1", Table.ColumnNames(firstRow[Column1])),
+                Value.Type(firstRow[Column1])
+            );
+
+// Read all pages of data.
+// Table.GenerateByPage will keep asking for more pages until we return null.
+GetAllPagesByNextLink = (url as text) as table =>
+    Table.GenerateByPage((previous) =>
+        let
+            // if previous is null, then this is our first page of data
+            wasFirst = (previous = null), // boolean
+            // if not first page, it's relevant to check if there is a next page or not
+            nextPageState = Value.Metadata(previous)[nextPageState]?, // nullable
+            page = if (wasFirst) then
+                GetSinglePage(url)
+            else (
+                if (nextPageState <> null) then
+                    GetSinglePage(url, nextPageState)
+                else
+                    null
+            )
+        in
+            page
+    );
+
+// Request and parsing
+GetSinglePage = (url as text, optional pageState as text) as table =>
+    // if pageState is passed, it is appended to the URL at the last minute here
+    let
+        token = Extension.CurrentCredential()[Key],
         requestHeaders = [
             accept="application/json",
-            #"X-Cassandra-Token"=astraToken
+            #"X-Cassandra-Token"=token
         ],
-        response = Web.Contents(url, [ Headers = requestHeaders ]),        
+        requestUrl = if (pageState <> null) then
+            // there may be querystring params already, or not - handle this
+            if(Text.Contains(url, "?")) then
+                url & "&page-state=" & pageState
+            else
+                url & "?page-state=" & pageState
+        else
+            url,
+        response = Web.Contents(requestUrl, [ Headers = requestHeaders ]),
         body = Json.Document(response),
+        nextPageState = Record.FieldOrDefault(body, "pageState"),
         data = Table.FromRecords(body[data])
     in
-        data;
+        data meta [nextPageState = nextPageState]
+;
 
 [DataSource.Kind="astra_db_connector", Publish="astra_db_connector.Publish"]
-shared astra_db_connector.Contents = getWholeContents;
+// shared astra_db_connector.Contents = getWholeContents;
+shared astra_db_connector.Contents = astra_db_connector.getDataForTable;
 
 // Data Source Kind description
 astra_db_connector = [

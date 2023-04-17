@@ -17,7 +17,7 @@ Pre-requisites:
 
 Dev mode will just show a trimmed down, non-interactive version of the connector output.
 
-Open this project in VSCode, open the `*.query.pq` file, adjust as needed.
+Open this project in VSCode, open the `*.query.pq` file, adjust as needed (i.e. replace with your Database ID and region).
 
 Locate the "POWER QUERY SDK" bar below VSCode's Explorer left-hand navbar, expand it. It should have detected that the project is a PowerQuery extension and allow for a "Set credential" operation. Follow it to set e.g. your (DB Admin) Astra DB token. _(Note: this should be done after adjusting the file above, as each change will trigger the need for new credentials.)_
 
