@@ -2,30 +2,42 @@
 [Version = "0.1.0"]
 section astra_db_connector;
 
-// Imports from libraries (lol) - machinery
-Extension.LoadFunction = (fileName as text) =>
-  let
-      binary = Extension.Contents(fileName),
-      asText = Text.FromBinary(binary)
-  in
-      try
-        Expression.Evaluate(asText, #shared)
-      catch (e) =>
-        error [
-            Reason = "Extension.LoadFunction Failure",
-            Message.Format = "Loading '#{0}' failed - '#{1}': '#{2}'",
-            Message.Parameters = {fileName, e[Reason], e[Message]},
-            Detail = [File = fileName, Error = e]
-        ];
-
-// Actual imports
-Table.ToNavigationTable = Extension.LoadFunction("stdlib/Table.ToNavigationTable.pqm");
+/*
+    Library function to make a "navigation table"
+    (see: https://learn.microsoft.com/en-us/power-query/helper-functions#tabletonavigationtable)
+    A regular table is equipped with certain properties so that e.g. in PowerBI it looks like
+    a list of choosable entries (e.g. choose-keyspace, choose-table).
+    This code comes straight from the M documentation.
+*/
+Table.ToNavigationTable = (
+    table as table,
+    keyColumns as list,
+    nameColumn as text,
+    dataColumn as text,
+    itemKindColumn as text,
+    itemNameColumn as text,
+    isLeafColumn as text
+) as table =>
+    let
+        tableType = Value.Type(table),
+        newTableType = Type.AddTableKey(tableType, keyColumns, true) meta 
+        [
+            NavigationTable.NameColumn = nameColumn, 
+            NavigationTable.DataColumn = dataColumn,
+            NavigationTable.ItemKindColumn = itemKindColumn, 
+            Preview.DelayColumn = itemNameColumn, 
+            NavigationTable.IsLeafColumn = isLeafColumn
+        ],
+        navigationTable = Value.ReplaceType(table, newTableType)
+    in
+        navigationTable
+;
 
 // Settings
-// set to empty string (no '?' to leave unspecified, i.e. server defaults)
+// Set to empty string for server defaults, or something like "?page-size=2" (incl. the "?")
 tableUrlPageSizeSpecifier = ""; // "?page-size=2";
 
-// Url path handling
+// REST API Handling - url/path construction
 makeRestAPIUrl = (databaseID as text, region as text, optional subpath as text) as text =>
     let
         fullUrl = "https://" & databaseID & "-" & region & ".apps.astra.datastax.com/api/rest/v2/" & (if (subpath=null) then "" else subpath)
@@ -33,11 +45,11 @@ makeRestAPIUrl = (databaseID as text, region as text, optional subpath as text) 
         fullUrl
 ;
 
-// Schema handling
-getWholeContents = (databaseID as text, region as text) =>
+// SCHEMA handling - get all keyspaces
+astra_db_connector.getKeyspaces = (databaseID as text, region as text) =>
     let
         keyspacesUrl = makeRestAPIUrl(databaseID, region, "schemas/keyspaces"),
-        keyspacesTable = GetSinglePage(keyspacesUrl),
+        keyspacesTable = getSinglePage(keyspacesUrl),
         // in the output from REST API, certain entries only have "name": system keyspaces, we discard them.
         cleanedKeyspacesTable = Table.RemoveRowsWithErrors(keyspacesTable, {"datacenters"}),
         usableKeyspacesTable = Table.SelectRows(cleanedKeyspacesTable, each "datacenters" <> null),
@@ -56,10 +68,11 @@ getWholeContents = (databaseID as text, region as text) =>
         navTable
 ;
 
+// SCHEMA handling - get all tables
 astra_db_connector.getTablesForKeyspace = (databaseID as text, region as text, keyspace as text) =>
     let
         tablesUrl = makeRestAPIUrl(databaseID, region, "schemas/keyspaces/" & keyspace & "/tables"),
-        tablesTable = GetSinglePage(tablesUrl),
+        tablesTable = getSinglePage(tablesUrl),
         removed = Table.SelectColumns(tablesTable, {"name"}),
         renamed = Table.RenameColumns(removed,{{"name", "Table"}}),
         // Add Data as a calculated column
@@ -75,67 +88,10 @@ astra_db_connector.getTablesForKeyspace = (databaseID as text, region as text, k
         navTable
 ;
 
-// data retrieval from a table
-astra_db_connector.getDataForTable = (databaseID as text, region as text, keyspace as text, tableName as text) =>
-    let
-        tableUrl = makeRestAPIUrl(databaseID, region, "keyspaces/" & keyspace & "/" & tableName & "/rows" & tableUrlPageSizeSpecifier),
-        dataTable = GetAllPagesByNextLink(tableUrl)
-    in
-        dataTable
-;
-
-// Pagination machinery
-// (see: https://learn.microsoft.com/en-us/power-query/samples/trippin/5-paging/readme)
-
-// The getNextPage function takes a single argument and is expected to return a nullable table
-Table.GenerateByPage = (getNextPage as function) as table =>
-    let
-        listOfPages = List.Generate(
-            () => getNextPage(null),            // get the first page of data
-            (lastPage) => lastPage <> null,     // stop when the function returns null
-            (lastPage) => getNextPage(lastPage) // pass the previous page to the next function call
-        ),
-        // concatenate the pages together
-        tableOfPages = Table.FromList(listOfPages, Splitter.SplitByNothing(), {"Column1"}),
-        firstRow = tableOfPages{0}?
-    in
-        // if we didn't get back any pages of data, return an empty table
-        // otherwise set the table type based on the columns of the first page
-        if (firstRow = null) then
-            Table.FromRows({})
-    // check for empty first table
-        else if (Table.IsEmpty(firstRow[Column1])) then
-            firstRow[Column1]
-        else
-            Value.ReplaceType(
-                Table.ExpandTableColumn(tableOfPages, "Column1", Table.ColumnNames(firstRow[Column1])),
-                Value.Type(firstRow[Column1])
-            );
-
-// Read all pages of data.
-// Table.GenerateByPage will keep asking for more pages until we return null.
-GetAllPagesByNextLink = (url as text) as table =>
-    Table.GenerateByPage((previous) =>
-        let
-            // if previous is null, then this is our first page of data
-            wasFirst = (previous = null), // boolean
-            // if not first page, it's relevant to check if there is a next page or not
-            nextPageState = Value.Metadata(previous)[nextPageState]?, // nullable
-            page = if (wasFirst) then
-                GetSinglePage(url)
-            else (
-                if (nextPageState <> null) then
-                    GetSinglePage(url, nextPageState)
-                else
-                    null
-            )
-        in
-            page
-    );
-
-// Request and parsing
-GetSinglePage = (url as text, optional pageState as text) as table =>
-    // if pageState is passed, it is appended to the URL at the last minute here
+// DATA handling - get a single page from Astra Rest API
+getSinglePage = (url as text, optional pageState as text) as table =>
+    // If pageState is passed, it is appended to the URL at the last minute here
+    // This function works for paginated requests as well as no-pagination endpoints.
     let
         token = Extension.CurrentCredential()[Key],
         requestHeaders = [
@@ -158,8 +114,78 @@ GetSinglePage = (url as text, optional pageState as text) as table =>
         data meta [nextPageState = nextPageState]
 ;
 
+// DATA handling - get (paginated) rows for a table
+astra_db_connector.getDataForTable = (databaseID as text, region as text, keyspace as text, tableName as text) =>
+    let
+        tableUrl = makeRestAPIUrl(databaseID, region, "keyspaces/" & keyspace & "/" & tableName & "/rows" & tableUrlPageSizeSpecifier),
+        dataTable = Table.GetAllPagesByNextPageState(tableUrl)
+    in
+        dataTable
+;
+
+// PAGINATION
+// (see: https://learn.microsoft.com/en-us/power-query/samples/trippin/5-paging/readme)
+// The two functions 'GenerateByPage' and 'GetAllPagesByNextPageState' implement
+// a progressive all-page-collation of results along the lines outlined in the above link.
+// The big difference is the "next page" handling, which here is a page-state string
+// and not a full link. So throughout this pagination we keep a separate concept
+// of "bare url" and "url with page-state indication".
+
+// Generate a full list of results page after page, given a function to build the next page.
+Table.GenerateByPage = (getNextPage as function) as table =>
+    // getNextPage takes a single argument and is expected to return a nullable table
+    let
+        listOfPages = List.Generate(
+            () => getNextPage(null),            // get the first page of data
+            (lastPage) => lastPage <> null,     // stop when the function returns null
+            (lastPage) => getNextPage(lastPage) // pass the previous page to the next function call
+        ),
+        // concatenate the pages together
+        tableOfPages = Table.FromList(listOfPages, Splitter.SplitByNothing(), {"Column1"}),
+        firstRow = tableOfPages{0}?
+    in
+        // if we didn't get back any pages of data, return an empty table
+        // otherwise set the table type based on the columns of the first page
+        if (firstRow = null) then
+            Table.FromRows({})
+        // check for empty first table
+        else if (Table.IsEmpty(firstRow[Column1])) then
+            firstRow[Column1]
+        else
+            Value.ReplaceType(
+                Table.ExpandTableColumn(tableOfPages, "Column1", Table.ColumnNames(firstRow[Column1])),
+                Value.Type(firstRow[Column1])
+            );
+
+// Generate the whole result set from the first page, with knowledge on how to extract
+// the request for 'next page'. This expects that 'getSinglePage' encodes
+// the state for the next page in the metadata for the returned page.
+Table.GetAllPagesByNextPageState = (url as text) as table =>
+    // Here we use GenerateByPage with a certain explicit 'getNextPage' implementation.
+    // GenerateByPage will keep asking for more pages until this 'getNextPage' returns null
+    Table.GenerateByPage((previous) =>
+        let
+            // if previous is null, then this is our first page of data
+            wasFirst = (previous = null), // boolean
+            // if not first page, it's relevant to check if there is a next page or not
+            nextPageState = Value.Metadata(previous)[nextPageState]?, // nullable
+            page = if (wasFirst) then
+                // we ask for at least one page
+                getSinglePage(url)
+            else (
+                if (nextPageState <> null) then
+                    // there is a new page to ask
+                    getSinglePage(url, nextPageState)
+                else
+                    // we've exhausted the table
+                    null
+            )
+        in
+            page
+    );
+
 [DataSource.Kind="astra_db_connector", Publish="astra_db_connector.Publish"]
-// shared astra_db_connector.Contents = getWholeContents;
+// shared astra_db_connector.Contents = astra_db_connector.getKeyspaces;
 shared astra_db_connector.Contents = astra_db_connector.getDataForTable;
 
 // Data Source Kind description
