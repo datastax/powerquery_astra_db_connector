@@ -2,34 +2,28 @@
 [Version = "0.1.0"]
 section astra_db_connector;
 
+// Imports from libraries (lol) - machinery
+Extension.LoadFunction = (fileName as text) =>
+  let
+      binary = Extension.Contents(fileName),
+      asText = Text.FromBinary(binary)
+  in
+      try
+        Expression.Evaluate(asText, #shared)
+      catch (e) =>
+        error [
+            Reason = "Extension.LoadFunction Failure",
+            Message.Format = "Loading '#{0}' failed - '#{1}': '#{2}'",
+            Message.Parameters = {fileName, e[Reason], e[Message]},
+            Detail = [File = fileName, Error = e]
+        ];
+
+// Actual imports
+Table.ToNavigationTable = Extension.LoadFunction("stdlib/Table.ToNavigationTable.pqm");
+
 // Settings
 // set to empty string (no '?' to leave unspecified, i.e. server defaults)
 tableUrlPageSizeSpecifier = ""; // "?page-size=2";
-
-// library (navigation table)
-// (see: https://learn.microsoft.com/en-us/power-query/helper-functions#tabletonavigationtable)
-Table.ToNavigationTable = (
-    table as table,
-    keyColumns as list,
-    nameColumn as text,
-    dataColumn as text,
-    itemKindColumn as text,
-    itemNameColumn as text,
-    isLeafColumn as text
-) as table =>
-    let
-        tableType = Value.Type(table),
-        newTableType = Type.AddTableKey(tableType, keyColumns, true) meta 
-        [
-            NavigationTable.NameColumn = nameColumn, 
-            NavigationTable.DataColumn = dataColumn,
-            NavigationTable.ItemKindColumn = itemKindColumn, 
-            Preview.DelayColumn = itemNameColumn, 
-            NavigationTable.IsLeafColumn = isLeafColumn
-        ],
-        navigationTable = Value.ReplaceType(table, newTableType)
-    in
-        navigationTable;
 
 // Url path handling
 makeRestAPIUrl = (databaseID as text, region as text, optional subpath as text) as text =>
