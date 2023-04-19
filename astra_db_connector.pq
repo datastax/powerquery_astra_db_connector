@@ -33,6 +33,66 @@ Table.ToNavigationTable = (
         navigationTable
 ;
 
+/*
+    Library function to enforce a schema on a table.
+    See https://learn.microsoft.com/en-us/power-query/samples/trippin/6-schema/readme
+*/
+EnforceSchema.Strict = 1;               // Add any missing columns, remove extra columns, set table type
+EnforceSchema.IgnoreExtraColumns = 2;   // Add missing columns, do not remove extra columns
+EnforceSchema.IgnoreMissingColumns = 3; // Do not add or remove columns
+SchemaTransformTable = (table as table, schema as table, optional enforceSchema as number) as table =>
+    let
+        // Default to EnforceSchema.Strict
+        _enforceSchema = if (enforceSchema <> null) then enforceSchema else EnforceSchema.Strict,
+
+        // Applies type transforms to a given table
+        EnforceTypes = (table as table, schema as table) as table =>
+            let
+                map = (t) => if Type.Is(t, type list) or Type.Is(t, type record) or t = type any then null else t,
+                mapped = Table.TransformColumns(schema, {"Type", map}),
+                omitted = Table.SelectRows(mapped, each [Type] <> null),
+                existingColumns = Table.ColumnNames(table),
+                removeMissing = Table.SelectRows(omitted, each List.Contains(existingColumns, [Name])),
+                primitiveTransforms = Table.ToRows(removeMissing),
+                changedPrimitives = Table.TransformColumnTypes(table, primitiveTransforms)
+            in
+                changedPrimitives,
+
+        // Returns the table type for a given schema
+        SchemaToTableType = (schema as table) as type =>
+            let
+                toList = List.Transform(schema[Type], (t) => [Type=t, Optional=false]),
+                toRecord = Record.FromList(toList, schema[Name]),
+                toType = Type.ForRecord(toRecord, false)
+            in
+                type table (toType),
+
+        // Determine if we have extra/missing columns.
+        // The enforceSchema parameter determines what we do about them.
+        schemaNames = schema[Name],
+        foundNames = Table.ColumnNames(table),
+        addNames = List.RemoveItems(schemaNames, foundNames),
+        extraNames = List.RemoveItems(foundNames, schemaNames),
+        tmp = Text.NewGuid(),
+        added = Table.AddColumn(table, tmp, each []),
+        expanded = Table.ExpandRecordColumn(added, tmp, addNames),
+        result = if List.IsEmpty(addNames) then table else expanded,
+        fullList =
+            if (_enforceSchema = EnforceSchema.Strict) then
+                schemaNames
+            else if (_enforceSchema = EnforceSchema.IgnoreMissingColumns) then
+                foundNames
+            else
+                schemaNames & extraNames,
+
+        // Select the final list of columns.
+        // These will be ordered according to the schema table.
+        reordered = Table.SelectColumns(result, fullList, MissingField.Ignore),
+        enforcedTypes = EnforceTypes(reordered, schema),
+        withType = if (_enforceSchema = EnforceSchema.Strict) then Value.ReplaceType(enforcedTypes, SchemaToTableType(schema)) else enforcedTypes
+    in
+        withType;
+
 // Settings
 // Set to empty string for server defaults, or something like "?page-size=2" (incl. the "?")
 tableUrlPageSizeSpecifier = ""; // "?page-size=2";
@@ -88,6 +148,73 @@ astra_db_connector.getTablesForKeyspace = (databaseID as text, region as text, k
         navTable
 ;
 
+// SCHEMA handling - cql-to-M type conversion
+cqlTypeToMType = (cqlType as text, isMandatory as logical) as type =>
+    let
+        _ct = Text.Lower(cqlType),
+        baseType =
+            if (_ct = "ascii")      then type nullable text     else
+            if (_ct = "bigint")     then type nullable number   else
+            if (_ct = "blob")       then type nullable binary   else
+            if (_ct = "boolean")    then type nullable logical  else
+            if (_ct = "counter")    then type nullable number   else
+            if (_ct = "date")       then type nullable date     else
+            if (_ct = "decimal")    then type nullable number   else
+            if (_ct = "double")     then type nullable number   else
+            if (_ct = "float")      then type nullable number   else
+            if (_ct = "inet")       then type nullable text     else
+            if (_ct = "int")        then type nullable number   else
+            if (_ct = "smallint")   then type nullable number   else
+            if (_ct = "text")       then type nullable text     else
+            if (_ct = "time")       then type nullable time     else
+            if (_ct = "timestamp")  then type nullable datetime else
+            if (_ct = "timeuuid")   then type nullable text     else
+            if (_ct = "tinyint")    then type nullable number   else
+            if (_ct = "uuid")       then type nullable text     else
+            if (_ct = "varint")     then type nullable number   else
+            type any,
+        completeType = if isMandatory then Type.NonNullable(baseType) else baseType
+    in
+        completeType
+;
+
+// SCHEMA handling - query Astra REST API and construct a table schema
+// Note: We cannot reuse getSinglePage here since the "data" response field is not a list of records for this endpoint.
+astra_db_connector.getSchemaForTable = (databaseID as text, region as text, keyspace as text, tableName as text) as table =>
+    let
+        tableSchemaUrl = makeRestAPIUrl(databaseID, region, "schemas/keyspaces/" & keyspace & "/tables/" & tableName),
+        token = Extension.CurrentCredential()[Key],
+        requestHeaders = [
+            accept="application/json",
+            #"X-Cassandra-Token"=token
+        ],
+        response = Web.Contents(tableSchemaUrl, [ Headers = requestHeaders ]),
+        body = Json.Document(response),
+        data = body[data],
+        columns = Table.FromRecords(data[columnDefinitions]),
+
+        // which columns are in the primary key, i.e. are non-nullable?
+        keyColumnsPK = data[primaryKey][partitionKey],
+        keyColumnsCC = data[primaryKey][clusteringKey],
+        keyColumns = List.Combine({keyColumnsPK, keyColumnsCC}),
+
+        // prepare the schema as table with creation of the types column
+        schemaAsTable = Table.FromRecords(data[columnDefinitions], {"name", "typeDefinition"}),
+        enrichedSchemaAsTable = Table.AddColumn(
+            schemaAsTable,
+            "enrichedTypeDefinition",
+            each cqlTypeToMType([typeDefinition], List.Contains(keyColumns,[name])),
+            type type
+        ),
+        cleanedSchemaAsTable = Table.SelectColumns(enrichedSchemaAsTable, {"name", "enrichedTypeDefinition"}),
+        renamedSchema = Table.RenameColumns(cleanedSchemaAsTable, {
+            {"name", "Name"},
+            {"enrichedTypeDefinition", "Type"}
+        })
+    in
+        renamedSchema
+;
+
 // DATA handling - get a single page from Astra Rest API
 getSinglePage = (url as text, optional pageState as text) as table =>
     // If pageState is passed, it is appended to the URL at the last minute here
@@ -117,10 +244,13 @@ getSinglePage = (url as text, optional pageState as text) as table =>
 // DATA handling - get (paginated) rows for a table
 astra_db_connector.getDataForTable = (databaseID as text, region as text, keyspace as text, tableName as text) =>
     let
+        tableSchema = astra_db_connector.getSchemaForTable(databaseID as text, region as text, keyspace as text, tableName as text),
         tableUrl = makeRestAPIUrl(databaseID, region, "keyspaces/" & keyspace & "/" & tableName & "/rows" & tableUrlPageSizeSpecifier),
-        dataTable = Table.GetAllPagesByNextPageState(tableUrl)
+        dataTable = Table.GetAllPagesByNextPageState(tableUrl),
+        withSchema = SchemaTransformTable(dataTable, tableSchema)
     in
-        dataTable
+        // dataTable
+        withSchema
 ;
 
 // PAGINATION
@@ -185,8 +315,9 @@ Table.GetAllPagesByNextPageState = (url as text) as table =>
     );
 
 [DataSource.Kind="astra_db_connector", Publish="astra_db_connector.Publish"]
-// shared astra_db_connector.Contents = astra_db_connector.getKeyspaces;
-shared astra_db_connector.Contents = astra_db_connector.getDataForTable;
+shared astra_db_connector.Contents = astra_db_connector.getKeyspaces;
+// shared astra_db_connector.Contents = astra_db_connector.getDataForTable;
+// shared astra_db_connector.Contents = astra_db_connector.getSchemaForTable;
 
 // Data Source Kind description
 astra_db_connector = [
