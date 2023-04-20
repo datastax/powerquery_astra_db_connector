@@ -339,6 +339,6 @@ astra_db_connector.Publish = [
 ];
 
 astra_db_connector.Icons = [
-    Icon16 = { Extension.Contents("astra_db_connector16.png"), Extension.Contents("astra_db_connector20.png"), Extension.Contents("astra_db_connector24.png"), Extension.Contents("astra_db_connector32.png") },
-    Icon32 = { Extension.Contents("astra_db_connector32.png"), Extension.Contents("astra_db_connector40.png"), Extension.Contents("astra_db_connector48.png"), Extension.Contents("astra_db_connector64.png") }
+    Icon16 = { Extension.Contents(icons/"astra_db_connector16.png"), Extension.Contents("icons/astra_db_connector20.png"), Extension.Contents("icons/astra_db_connector24.png"), Extension.Contents("icons/astra_db_connector32.png") },
+    Icon32 = { Extension.Contents("icons/astra_db_connector32.png"), Extension.Contents("icons/astra_db_connector40.png"), Extension.Contents("icons/astra_db_connector48.png"), Extension.Contents("icons/astra_db_connector64.png") }
 ];
