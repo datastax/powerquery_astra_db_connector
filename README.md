@@ -1,8 +1,6 @@
-# astra_db_connector
+# "Astra DB" Power Query connector
 
 A PowerQuery connector to access tables in Astra DB, backed by the REST API.
-
-_Status as of 2023-04-14: very preliminary!_
 
 ## Dev mode setup
 
@@ -25,8 +23,12 @@ Now right-click on the `*.query.pq` file and pick "Evaluate current power query 
 
 ### Running in PowerBI Desktop
 
-For more extensive usage, pick the `*.mez` file created in `bin/AnyCPU/Debug` and copy it to (your version of) `C:\Users\USER\Documents\Power BI Desktop\Custom Connectors`.
+You can see the connector at work in PowerBI Desktop even without the need for VSCode. You need the `*.mez` compiled file, that you get either
+- as a release in this repo (pick the most recent);
+- or in `bin/AnyCPU/Debug` in the project directory if you ran it at least once with VSCode.
+
+Copy the file to (your version of) `C:\Users\USER\Documents\Power BI Desktop\Custom Connectors`.
 
 Then open PowerBI and make sure you [enable untrusted extensions](https://learn.microsoft.com/en-us/power-query/install-sdk#power-bi-desktop) in the global settings.
 
-Now you can "Get Data" and start using the new connector.
+Now you can "Get Data", pick "Astra DB" and provide the required connection details and credentials to start ingesting tables in PowerBI.

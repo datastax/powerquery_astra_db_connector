@@ -1,6 +1,6 @@
 // This file contains your Data Connector logic
 [Version = "0.1.0"]
-section astra_db_connector;
+section #"Astra DB";
 
 /*
     Library function to make a "navigation table"
@@ -325,7 +325,8 @@ astra_db_connector = [
         Key = [
             KeyLabel=Extension.LoadString("DBTokenFieldName")
         ]
-    ]
+    ],
+    Label = "Astra DB"
 ];
 
 // Data Source UI publishing description

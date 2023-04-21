@@ -1,0 +1,12 @@
+{
+    "version": "0.1.0",
+    "configurations": [
+        {
+            "name": "Evaluate power query file STEO",
+            "type": "powerquery",
+            "request": "launch",
+            "program": "${workspaceFolder}/${command:AskForPowerQueryFileName}",
+            "additionalArgs": ["--logMashupEngineTraces", "all" ]
+        }
+    ]
+}
