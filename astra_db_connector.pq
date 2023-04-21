@@ -323,7 +323,7 @@ shared astra_db_connector.Contents = astra_db_connector.getKeyspaces;
 astra_db_connector = [
     Authentication = [
         Key = [
-            KeyLabel="Token"
+            KeyLabel=Extension.LoadString("DBTokenFieldName")
         ]
     ]
 ];
@@ -331,14 +331,14 @@ astra_db_connector = [
 // Data Source UI publishing description
 astra_db_connector.Publish = [
     Beta = true,
-    Category = "Other",
+    Category = "Database",
     ButtonText = { Extension.LoadString("ButtonTitle"), Extension.LoadString("ButtonHelp") },
-    LearnMoreUrl = "https://powerbi.microsoft.com/",
+    LearnMoreUrl = "https://astra.datastax.com/",
     SourceImage = astra_db_connector.Icons,
     SourceTypeImage = astra_db_connector.Icons
 ];
 
 astra_db_connector.Icons = [
-    Icon16 = { Extension.Contents(icons/"astra_db_connector16.png"), Extension.Contents("icons/astra_db_connector20.png"), Extension.Contents("icons/astra_db_connector24.png"), Extension.Contents("icons/astra_db_connector32.png") },
-    Icon32 = { Extension.Contents("icons/astra_db_connector32.png"), Extension.Contents("icons/astra_db_connector40.png"), Extension.Contents("icons/astra_db_connector48.png"), Extension.Contents("icons/astra_db_connector64.png") }
+    Icon16 = { Extension.Contents("astra_db_connector16.png"), Extension.Contents("astra_db_connector20.png"), Extension.Contents("astra_db_connector24.png"), Extension.Contents("astra_db_connector32.png") },
+    Icon32 = { Extension.Contents("astra_db_connector32.png"), Extension.Contents("astra_db_connector40.png"), Extension.Contents("astra_db_connector48.png"), Extension.Contents("astra_db_connector64.png") }
 ];
