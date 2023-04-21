@@ -96,6 +96,8 @@ SchemaTransformTable = (table as table, schema as table, optional enforceSchema 
 // Settings
 // Set to empty string for server defaults, or something like "?page-size=2" (incl. the "?")
 tableUrlPageSizeSpecifier = ""; // "?page-size=2";
+// Timeout for all HTTP requests (days, hours, minutes, seconds)
+httpTimeout = #duration(0, 0, 0, 20);
 
 // REST API Handling - url/path construction
 makeRestAPIUrl = (databaseID as text, region as text, optional subpath as text) as text =>
@@ -188,11 +190,23 @@ astra_db_connector.getSchemaForTable = (databaseID as text, region as text, keys
             accept="application/json",
             #"X-Cassandra-Token"=token
         ],
-        response = Web.Contents(tableSchemaUrl, [ Headers = requestHeaders ]),
-        body = Json.Document(response),
-        data = body[data],
+        // Error handling for the request+parsing part
+        data = try
+            let
+                response = Web.Contents(
+                    tableSchemaUrl,
+                    [
+                        Headers = requestHeaders,
+                        Timeout = httpTimeout
+                    ]
+                ),
+                body = Json.Document(response)
+            in
+                body[data]
+        catch
+            (e) => httpExceptionToErrorMessage(e[Reason], e[Message], tableSchemaUrl),
+        // End of request+parsing-part custom error handling
         columns = Table.FromRecords(data[columnDefinitions]),
-
         // which columns are in the primary key, i.e. are non-nullable?
         keyColumnsPK = data[primaryKey][partitionKey],
         keyColumnsCC = data[primaryKey][clusteringKey],
@@ -233,10 +247,33 @@ getSinglePage = (url as text, optional pageState as text) as table =>
                 url & "?page-state=" & pageState
         else
             url,
-        response = Web.Contents(requestUrl, [ Headers = requestHeaders ]),
-        body = Json.Document(response),
+        // Error handling for the request part
+        body = try
+            let
+                response = Web.Contents(
+                    requestUrl,
+                    [
+                        Headers = requestHeaders,
+                        Timeout = httpTimeout
+                    ]
+                )
+            in
+                Json.Document(response)
+        catch
+            (e) => httpExceptionToErrorMessage(e[Reason], e[Message], requestUrl),
+        // End of request-part custom error handling
         nextPageState = Record.FieldOrDefault(body, "pageState"),
-        data = Table.FromRecords(body[data])
+        // Error handling for the data-extraction part
+        // Warning: to avoid errors piling up (actually, nesting into each other) we do this null check here.
+        // (otherwise, even if the above errors in the catch, the below subfield extraction would execute anyway)
+        data = if body = null then
+            null
+        else
+            try
+                Table.FromRecords(body[data])
+            catch
+                (e) => httpExceptionToErrorMessage(e[Reason], e[Message], requestUrl)
+        // End of data-extraction-part custom error handling
     in
         data meta [nextPageState = nextPageState]
 ;
@@ -314,6 +351,32 @@ Table.GetAllPagesByNextPageState = (url as text) as table =>
             page
     );
 
+
+// ERROR handling - translate HTTP exception into Astra-friendly messages
+httpExceptionToErrorMessage = (eReason as text, eMessage as text, requestUrl as text) as any =>
+    // this function is structured after careful experimentation with various endpoint failure modes
+
+    if eReason = "DataSource.Error" then
+        if Text.Contains(eMessage, "be resolved", Comparer.OrdinalIgnoreCase) then
+           error "Cannot reach Astra DB: connection parameters might be incorrect (" & requestUrl & ")"
+        else if Text.Contains(eMessage, "not found", Comparer.OrdinalIgnoreCase) then
+           error "Cannot reach Astra DB: API endpoint not found (" & requestUrl & ")"
+        else if Text.Contains(eMessage, "timed out", Comparer.OrdinalIgnoreCase) then
+           error "Cannot reach Astra DB: a timeout has occurred (" & requestUrl & ")"
+        else if Text.Contains(eMessage, "bad request", Comparer.OrdinalIgnoreCase) then
+           error "Cannot reach Astra DB: check database status (" & requestUrl & ")"
+        else
+           error "Cannot reach Astra DB: unknown reason """ & eMessage & """ (" & requestUrl & ")"
+    else if eReason = "Expression.Error" then
+        error "Insufficient response from Astra DB: " & eMessage & " (" & requestUrl & ")"
+    else if eReason = "DataFormat.Error" then
+        error "Malformed response from Astra DB: not a valid JSON (" & requestUrl & ")"
+    else
+        error "Unexpected error with Astra DB. Reason = """ & eReason & """. Message = """ & eMessage & """. URL = """ & requestUrl & """."
+
+;
+
+// Main entrypoint function that gets exposed:
 [DataSource.Kind="astra_db_connector", Publish="astra_db_connector.Publish"]
 shared astra_db_connector.Contents = astra_db_connector.getKeyspaces;
 // shared astra_db_connector.Contents = astra_db_connector.getDataForTable;
