@@ -382,8 +382,28 @@ shared astra_db_connector.Contents = astra_db_connector.getKeyspaces;
 // shared astra_db_connector.Contents = astra_db_connector.getDataForTable;
 // shared astra_db_connector.Contents = astra_db_connector.getSchemaForTable;
 
+// dummy TestConnection for debug
+shared astra_db_connector.dummyTestConnection = (databaseID as text, region as text) =>
+    Table.FromList(
+        {
+            [Keyspace = "k1", Contents = "con1"],
+            [Keyspace = "k2", Contents = "con2"]
+        },
+        Record.FieldValues,
+        {"Keyspace", "Contents"}
+    )
+;
+
 // Data Source Kind description
 astra_db_connector = [
+    TestConnection = (dataSourcePath) =>
+        let
+            json = Json.Document(dataSourcePath),
+            databaseID = json[databaseID],
+            region = json[region]
+        in
+            { "astra_db_connector.dummyTestConnection", databaseID, region },
+            // { "astra_db_connector.Contents", databaseID, region },
     Authentication = [
         Key = [
             KeyLabel=Extension.LoadString("DBTokenFieldName")
