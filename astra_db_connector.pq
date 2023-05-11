@@ -98,6 +98,15 @@ SchemaTransformTable = (table as table, schema as table, optional enforceSchema 
 tableUrlPageSizeSpecifier = ""; // "?page-size=2";
 // Timeout for all HTTP requests (days, hours, minutes, seconds)
 httpTimeout = #duration(0, 0, 0, 20);
+// Astra DB system keyspaces to hide (i.e. those not accessible with a DB-scoped token)
+hiddenAstraKeyspaces = {
+    "data_endpoint_auth",
+    "system_auth",
+    "datastax_sla",
+    "system",
+    "system_schema",
+    "system_traces"
+};
 
 // REST API Handling - url/path construction
 makeRestAPIUrl = (databaseID as text, region as text, optional subpath as text) as text =>
@@ -108,15 +117,42 @@ makeRestAPIUrl = (databaseID as text, region as text, optional subpath as text) 
 ;
 
 // SCHEMA handling - get all keyspaces
-astra_db_connector.getKeyspaces = (databaseID as text, region as text) =>
+// This is the "schema-based" call, requiring an across-DB token. Deprecated
+astra_db_connector.getKeyspacesSchemaCall = (databaseID as text, region as text) =>
     let
         keyspacesUrl = makeRestAPIUrl(databaseID, region, "schemas/keyspaces"),
-        keyspacesTable = getSinglePage(keyspacesUrl),
-        // in the output from REST API, certain entries only have "name": system keyspaces, we discard them.
+        keyspacesTable = getSinglePage(keyspacesUrl, null, false),
+        // in the output from REST API, certain entries should be hidden
+        // Actually it seems that only the 'system' keyspace will be later unreadable. However we align with the read-table approach
+        // ... but for some reason we also have to take care of some records not having 'datacenters'. Let's get rid of them (system keyspaces anyway)
         cleanedKeyspacesTable = Table.RemoveRowsWithErrors(keyspacesTable, {"datacenters"}),
-        usableKeyspacesTable = Table.SelectRows(cleanedKeyspacesTable, each "datacenters" <> null),
-        removed = Table.RemoveColumns(usableKeyspacesTable,{"datacenters"}),
-        renamed = Table.RenameColumns(removed,{{"name", "Keyspace"}}),
+        usableKeyspacesTable = Table.SelectRows(cleanedKeyspacesTable, each not List.Contains(hiddenAstraKeyspaces, [name])),
+        removed = Table.SelectColumns(usableKeyspacesTable,{"name"}),
+        removedSorted = Table.Sort(removed, {"name"}),
+        renamed = Table.RenameColumns(removedSorted, {{"name", "Keyspace"}}),
+        // Add Data as a calculated column
+        withData = Table.AddColumn(renamed, "Data", each astra_db_connector.getTablesForKeyspace(databaseID, region, [Keyspace])),
+        // Add ItemKind and ItemName as fixed text values
+        withItemKind = Table.AddColumn(withData, "ItemKind", each "View", type text),
+        withItemName = Table.AddColumn(withItemKind, "ItemName", each "Table", type text),
+        // Indicate that the node should not be expandable
+        withIsLeaf = Table.AddColumn(withItemName, "IsLeaf", each false, type logical),
+        // Generate the nav table
+        navTable = Table.ToNavigationTable(withIsLeaf, {"Keyspace"}, "Keyspace", "Data", "ItemKind", "ItemName", "IsLeaf")
+    in
+        navTable
+;
+
+// SCHEMA handling - get all keyspaces
+// This is the "system-table-based" call, requiring a regular DB-scoped token. Preferrable
+astra_db_connector.getKeyspacesTableReadCall = (databaseID as text, region as text) =>
+    let
+        keyspacesUrl = makeRestAPIUrl(databaseID, region, "keyspaces/system_schema/keyspaces/rows"),
+        keyspacesTable = Table.GetAllPagesByNextPageState(keyspacesUrl),
+        usableKeyspacesTable = Table.SelectRows(keyspacesTable, each not List.Contains(hiddenAstraKeyspaces, [keyspace_name])),
+        removed = Table.SelectColumns(usableKeyspacesTable,{"keyspace_name"}),
+        removedSorted = Table.Sort(removed, {"keyspace_name"}),
+        renamed = Table.RenameColumns(removedSorted, {{"keyspace_name", "Keyspace"}}),
         // Add Data as a calculated column
         withData = Table.AddColumn(renamed, "Data", each astra_db_connector.getTablesForKeyspace(databaseID, region, [Keyspace])),
         // Add ItemKind and ItemName as fixed text values
@@ -134,7 +170,19 @@ astra_db_connector.getKeyspaces = (databaseID as text, region as text) =>
 astra_db_connector.getTablesForKeyspace = (databaseID as text, region as text, keyspace as text) =>
     let
         tablesUrl = makeRestAPIUrl(databaseID, region, "schemas/keyspaces/" & keyspace & "/tables"),
-        tablesTable = getSinglePage(tablesUrl),
+        // This (the 'try' and passing interceptUnauthorized=true) is to catch keyspaces we don't have access to, plus...
+        // Stargate BUG: with limited-scope tokens, empty keyspaces error as well ("401 Unauthorized").
+        tablesTable = try
+            let
+                tablesTableTry = getSinglePage(tablesUrl, null, true)
+            in
+                tablesTableTry
+        catch
+            (e) => #table(
+                type table[Table=text, Data=[Table], ItemKind=text, ItemName=text, IsLeaf=logical],
+                {}
+            ),
+        //
         navTable = if (Table.IsEmpty(tablesTable)) then
             #table(
                 type table[Table=text, Data=[Table], ItemKind=text, ItemName=text, IsLeaf=logical],
@@ -239,7 +287,7 @@ astra_db_connector.getSchemaForTable = (databaseID as text, region as text, keys
 ;
 
 // DATA handling - get a single page from Astra Rest API
-getSinglePage = (url as text, optional pageState as text) as table =>
+getSinglePage = (url as text, pageState as nullable text, interceptUnauthorized as logical) as table =>
     // If pageState is passed, it is appended to the URL at the last minute here
     // This function works for paginated requests as well as no-pagination endpoints.
     let
@@ -256,15 +304,23 @@ getSinglePage = (url as text, optional pageState as text) as table =>
                 url & "?page-state=" & pageState
         else
             url,
+        // handling optional 401 interception
+        unauthHandling = if (interceptUnauthorized = true) then
+            [ManualStatusHandling={401}]
+        else
+            [],
         // Error handling for the request part
         body = try
             let
                 response = Web.Contents(
                     requestUrl,
-                    [
-                        Headers = requestHeaders,
-                        Timeout = httpTimeout
-                    ]
+                    Record.Combine({
+                        [
+                            Headers = requestHeaders,
+                            Timeout = httpTimeout
+                        ],
+                        unauthHandling
+                    })
                 )
             in
                 Json.Document(response)
@@ -347,11 +403,11 @@ Table.GetAllPagesByNextPageState = (url as text) as table =>
             nextPageState = Value.Metadata(previous)[nextPageState]?, // nullable
             page = if (wasFirst) then
                 // we ask for at least one page
-                getSinglePage(url)
+                getSinglePage(url, null, false)
             else (
                 if (nextPageState <> null) then
                     // there is a new page to ask
-                    getSinglePage(url, nextPageState)
+                    getSinglePage(url, nextPageState, false)
                 else
                     // we've exhausted the table
                     null
@@ -388,7 +444,8 @@ httpExceptionToErrorMessage = (eReason as text, eMessage as text, requestUrl as 
 // Main entrypoint function that gets exposed:
 [DataSource.Kind="astra_db_connector", Publish="astra_db_connector.Publish"]
 // Actual entrypoint
-shared astra_db_connector.Contents = astra_db_connector.getKeyspaces;
+shared astra_db_connector.Contents = astra_db_connector.getKeyspacesTableReadCall;
+// shared astra_db_connector.Contents = astra_db_connector.getKeyspacesSchemaCall; // Deprecated in favor of the above (which works on a DB-scoped token)
 //
 // "Tables in a keyspace" entrypoint
 // shared astra_db_connector.Contents = astra_db_connector.getTablesForKeyspace;
