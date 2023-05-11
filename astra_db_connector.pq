@@ -121,7 +121,7 @@ makeRestAPIUrl = (databaseID as text, region as text, optional subpath as text) 
 astra_db_connector.getKeyspacesSchemaCall = (databaseID as text, region as text) =>
     let
         keyspacesUrl = makeRestAPIUrl(databaseID, region, "schemas/keyspaces"),
-        keyspacesTable = getSinglePage(keyspacesUrl, null, false),
+        keyspacesTable = getSinglePage(keyspacesUrl),
         // in the output from REST API, certain entries should be hidden
         // Actually it seems that only the 'system' keyspace will be later unreadable. However we align with the read-table approach
         // ... but for some reason we also have to take care of some records not having 'datacenters'. Let's get rid of them (system keyspaces anyway)
@@ -287,7 +287,7 @@ astra_db_connector.getSchemaForTable = (databaseID as text, region as text, keys
 ;
 
 // DATA handling - get a single page from Astra Rest API
-getSinglePage = (url as text, pageState as nullable text, interceptUnauthorized as logical) as table =>
+getSinglePage = (url as text, optional pageState as text, optional interceptUnauthorized as logical) as table =>
     // If pageState is passed, it is appended to the URL at the last minute here
     // This function works for paginated requests as well as no-pagination endpoints.
     let
@@ -392,7 +392,7 @@ Table.GenerateByPage = (getNextPage as function) as table =>
 // Generate the whole result set from the first page, with knowledge on how to extract
 // the request for 'next page'. This expects that 'getSinglePage' encodes
 // the state for the next page in the metadata for the returned page.
-Table.GetAllPagesByNextPageState = (url as text) as table =>
+Table.GetAllPagesByNextPageState = (url as text, optional interceptUnauthorized as logical) as table =>
     // Here we use GenerateByPage with a certain explicit 'getNextPage' implementation.
     // GenerateByPage will keep asking for more pages until this 'getNextPage' returns null
     Table.GenerateByPage((previous) =>
@@ -403,11 +403,11 @@ Table.GetAllPagesByNextPageState = (url as text) as table =>
             nextPageState = Value.Metadata(previous)[nextPageState]?, // nullable
             page = if (wasFirst) then
                 // we ask for at least one page
-                getSinglePage(url, null, false)
+                getSinglePage(url, null, interceptUnauthorized)
             else (
                 if (nextPageState <> null) then
                     // there is a new page to ask
-                    getSinglePage(url, nextPageState, false)
+                    getSinglePage(url, nextPageState, interceptUnauthorized)
                 else
                     // we've exhausted the table
                     null
