@@ -4,7 +4,13 @@
 // definition in the .pq file.
 // Use this file to write queries to test your data connector
 let
+    // Actual entrypoint
     result = astra_db_connector.Contents(DATABASE_ID, REGION)
+    //
+    // "Tables in a keyspace" entrypoint
+    // result = astra_db_connector.Contents(DATABASE_ID, REGION, KEYSPACE)
+    //
+    // "Data in a table" entrypoint
     // result = astra_db_connector.Contents(DATABASE_ID, REGION, KEYSPACE, TABLE)
 in
     // Table.Schema(result)

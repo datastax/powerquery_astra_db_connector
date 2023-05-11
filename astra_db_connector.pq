@@ -135,17 +135,26 @@ astra_db_connector.getTablesForKeyspace = (databaseID as text, region as text, k
     let
         tablesUrl = makeRestAPIUrl(databaseID, region, "schemas/keyspaces/" & keyspace & "/tables"),
         tablesTable = getSinglePage(tablesUrl),
-        removed = Table.SelectColumns(tablesTable, {"name"}),
-        renamed = Table.RenameColumns(removed,{{"name", "Table"}}),
-        // Add Data as a calculated column
-        withData = Table.AddColumn(renamed, "Data", each astra_db_connector.getDataForTable(databaseID, region, keyspace, [Table])),
-        // Add ItemKind and ItemName as fixed text values
-        withItemKind = Table.AddColumn(withData, "ItemKind", each "Table", type text),
-        withItemName = Table.AddColumn(withItemKind, "ItemName", each "Table", type text),
-        // Indicate that the node should not be expandable
-        withIsLeaf = Table.AddColumn(withItemName, "IsLeaf", each true, type logical),
-        // Generate the nav table
-        navTable = Table.ToNavigationTable(withIsLeaf, {"Table"}, "Table", "Data", "ItemKind", "ItemName", "IsLeaf")
+        navTable = if (Table.IsEmpty(tablesTable)) then
+            #table(
+                type table[Table=text, Data=[Table], ItemKind=text, ItemName=text, IsLeaf=logical],
+                {}
+            )
+        else
+            let
+                removed = Table.SelectColumns(tablesTable, {"name"}),
+                renamed = Table.RenameColumns(removed,{{"name", "Table"}}),
+                // Add Data as a calculated column
+                withData = Table.AddColumn(renamed, "Data", each astra_db_connector.getDataForTable(databaseID, region, keyspace, [Table])),
+                // Add ItemKind and ItemName as fixed text values
+                withItemKind = Table.AddColumn(withData, "ItemKind", each "Table", type text),
+                withItemName = Table.AddColumn(withItemKind, "ItemName", each "Table", type text),
+                // Indicate that the node should not be expandable
+                withIsLeaf = Table.AddColumn(withItemName, "IsLeaf", each true, type logical),
+                // Generate the nav table
+                navTable = Table.ToNavigationTable(withIsLeaf, {"Table"}, "Table", "Data", "ItemKind", "ItemName", "IsLeaf")
+            in
+                navTable
     in
         navTable
 ;
@@ -378,7 +387,13 @@ httpExceptionToErrorMessage = (eReason as text, eMessage as text, requestUrl as 
 
 // Main entrypoint function that gets exposed:
 [DataSource.Kind="astra_db_connector", Publish="astra_db_connector.Publish"]
+// Actual entrypoint
 shared astra_db_connector.Contents = astra_db_connector.getKeyspaces;
+//
+// "Tables in a keyspace" entrypoint
+// shared astra_db_connector.Contents = astra_db_connector.getTablesForKeyspace;
+//
+// "Data in a table" entrypoint(s)
 // shared astra_db_connector.Contents = astra_db_connector.getDataForTable;
 // shared astra_db_connector.Contents = astra_db_connector.getSchemaForTable;
 
