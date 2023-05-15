@@ -454,16 +454,13 @@ shared astra_db_connector.Contents = astra_db_connector.getKeyspacesTableReadCal
 // shared astra_db_connector.Contents = astra_db_connector.getDataForTable;
 // shared astra_db_connector.Contents = astra_db_connector.getSchemaForTable;
 
-// dummy TestConnection for debug
-shared astra_db_connector.dummyTestConnection = (databaseID as text, region as text) =>
-    Table.FromList(
-        {
-            [Keyspace = "k1", Contents = "con1"],
-            [Keyspace = "k2", Contents = "con2"]
-        },
-        Record.FieldValues,
-        {"Keyspace", "Contents"}
-    )
+// just a call to the Astra DB REST API for TestConnection
+shared astra_db_connector.astraTestConnection = (databaseID as text, region as text) =>
+    let
+        keyspacesUrl = makeRestAPIUrl(databaseID, region, "keyspaces/system_schema/keyspaces/rows"),
+        returned = getSinglePage(keyspacesUrl)
+    in
+        returned
 ;
 
 // Data Source Kind description
@@ -474,8 +471,8 @@ astra_db_connector = [
             databaseID = json[databaseID],
             region = json[region]
         in
-            { "astra_db_connector.dummyTestConnection", databaseID, region },
-            // { "astra_db_connector.Contents", databaseID, region },
+            { "astra_db_connector.astraTestConnection", databaseID, region }
+    ,
     Authentication = [
         Key = [
             KeyLabel=Extension.LoadString("DBTokenFieldName")
