@@ -75,4 +75,4 @@ More information can be found [here](https://community.powerbi.com/t5/Community-
 
 ## Information for developers
 
-See the [README for developers](README_devs.md)
+See the [README for developers](README_devs.md).
