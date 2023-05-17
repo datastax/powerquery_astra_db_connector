@@ -1,5 +1,5 @@
 // This file contains your Data Connector logic
-[Version = "0.1.0"]
+[Version = "1.0.0"]
 section #"Astra DB";
 
 /*
