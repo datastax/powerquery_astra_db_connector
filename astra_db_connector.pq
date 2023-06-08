@@ -1,5 +1,5 @@
 // This file contains your Data Connector logic
-[Version = "1.0.0"]
+[Version = "0.1.1"]
 section #"Astra DB";
 
 /*
@@ -455,6 +455,7 @@ shared astra_db_connector.Contents = astra_db_connector.getKeyspacesTableReadCal
 // shared astra_db_connector.Contents = astra_db_connector.getSchemaForTable;
 
 // just a call to the Astra DB REST API for TestConnection
+[DataSource.Kind="astra_db_connector"]
 shared astra_db_connector.astraTestConnection = (databaseID as text, region as text) =>
     let
         keyspacesUrl = makeRestAPIUrl(databaseID, region, "keyspaces/system_schema/keyspaces/rows"),

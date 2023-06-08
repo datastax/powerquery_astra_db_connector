@@ -62,7 +62,7 @@ Once the token credentials is provided, you will be able to browse keyspaces and
 _Note: usage in PowerBI Service requires having completed the PowerBI Desktop setup first._
 
 As this is still a self-signed connector and is just now undergoing the certification process,
-for the time being you will need to rely on a Personal Data Gateway: see [here](https://learn.microsoft.com/en-us/data-integration/gateway/service-gateway-install#download-and-install-a-personal-mode-gateway) for more instructions on how to install it in your on-premises machine(s).
+for the time being you will need to rely on a Data Gateway: see [here](https://learn.microsoft.com/en-us/data-integration/gateway/service-gateway-install#download-and-install-a-personal-mode-gateway) for more instructions on how to install it in your on-premises machine(s) in "personal mode".
 
 The Gateway should find the connectors in the same directory as PowerBI Desktop. Make sure you have logged in with your cloud account both on PowerBI Desktop and the Gateway.
 
