@@ -32,9 +32,12 @@ To **mark the thumbprint as trusted**, the steps are outlined at [this link](htt
 1BB690F359432E849D06FDEA4E82573B279AAD75
 ```
 
-### Enable untrusted connectors
+#### Enable untrusted connectors
 
-Alternatively, you can lower the security level of PowerBI Desktop as outlined [here](https://learn.microsoft.com/en-us/power-query/install-sdk#power-bi-desktop):
+**Note**: you don't need to do this if you marked the thumbprint as trusted as per
+the instructions above.
+
+Alternatively, if you don't have access to `regedit`, you can lower the security level of PowerBI Desktop as outlined [here](https://learn.microsoft.com/en-us/power-query/install-sdk#power-bi-desktop):
 
 `File` => `Options and Settings` => `Options` => `Security` => in "Data Extensions", choose _Allow any data extension to load without validation or warning_. Then restart PowerBI Desktop.
 
