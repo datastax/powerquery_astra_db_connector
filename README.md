@@ -4,16 +4,26 @@ A PowerQuery connector to access tables in Astra DB, backed by the REST API.
 
 ## Usage instructions
 
-_Note: A more detailed user guide is going to be published on [Awesome Astra](https://awesome-astra.github.io) and it will be announced here shortly._
+This is an abridged form of the **more detailed guide published on [Awesome Astra](https://awesome-astra.github.io/docs/pages/tools/integration/microsoft-powerquery/#astra-db-custom-connector-local). Please head over to that article for in-depth guidance.**
 
 The following instructions cover usage in PowerBI Desktop and PowerBI Service, the latter
-backed by a (personal-mode) On-premises Data Gateway.
+backed by a (personal-mode) On-premises Data Gateway. Being a Power Query connector,
+it can actually be used with any of the products supporting this technology.
 
-The current status of this connector is: beta self-signed. The certification process is underway.
+The current status of this connector is: beta self-signed. The certification process is underway
+(and will make it possible to use the connector directly in Power BI Service, without a Data Gateway).
+
+## Get in touch
+
+This repo is the preferred place for feature requests, bug reports and miscellaneous discussion
+concerning the connector. Please go to the "Issues" section and open an Issue. Pull requests will be
+happily examined as well.
 
 ## PowerBI Desktop
 
-Obtain the latest PQX file from the [releases](https://github.com/hemidactylus/powerquery_astra_db_connector/releases)
+_(More details in the [Awesome Astra article](https://awesome-astra.github.io/docs/pages/tools/integration/microsoft-powerquery/#pre-requisites_1) about the connector.)_
+
+Obtain the latest PQX file from the [releases](https://github.com/datastax/powerquery_astra_db_connector/releases/latest)
 page and place the file in (your equivalent for) ``C:\Users\USER\Documents\Power BI Desktop\Custom Connectors``
 
 At the moment this is a self-signed connector, so you can either list the certificate thumbprint as "trusted" in your system (recommended) or alternatively enable untrusted extensions in PowerBI.
@@ -62,12 +72,14 @@ Once the token credentials is provided, you will be able to browse keyspaces and
 
 ## PowerBI Service
 
+_(More details in the [Awesome Astra article](https://awesome-astra.github.io/docs/pages/tools/integration/microsoft-powerquery/#power-bi-service-with-a-data-gateway) about the connector.)_
+
 _Note: usage in PowerBI Service requires having completed the PowerBI Desktop setup first._
 
 As this is still a self-signed connector and is just now undergoing the certification process,
 for the time being you will need to rely on a Data Gateway: see [here](https://learn.microsoft.com/en-us/data-integration/gateway/service-gateway-install#download-and-install-a-personal-mode-gateway) for more instructions on how to install it in your on-premises machine(s) in "personal mode".
 
-The Gateway should find the connectors in the same directory as PowerBI Desktop. Make sure you have logged in with your cloud account both on PowerBI Desktop and the Gateway.
+The Gateway should find the connectors in the same directory as PowerBI Desktop. Make sure you are logged in with your cloud account both on PowerBI Desktop and the Gateway.
 
 Now create a report with PowerBI Desktop, then save it (locally) and choose, in the "File" menu, "Publish" => "Publish to PowerBI". Pick your preferred destination workspace.
 
