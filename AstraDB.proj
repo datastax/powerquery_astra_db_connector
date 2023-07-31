@@ -7,15 +7,15 @@
     <MezOutputPath>$(OutputPath)$(MsBuildProjectName).mez</MezOutputPath>
   </PropertyGroup>
   <ItemGroup>
-    <MezContent Include="astra_db_connector.pq" />
-    <MezContent Include="astra_db_connector16.png" />
-    <MezContent Include="astra_db_connector20.png" />
-    <MezContent Include="astra_db_connector24.png" />
-    <MezContent Include="astra_db_connector32.png" />
-    <MezContent Include="astra_db_connector40.png" />
-    <MezContent Include="astra_db_connector48.png" />
-    <MezContent Include="astra_db_connector64.png" />
-    <MezContent Include="astra_db_connector80.png" />
+    <MezContent Include="AstraDB.pq" />
+    <MezContent Include="AstraDB16.png" />
+    <MezContent Include="AstraDB20.png" />
+    <MezContent Include="AstraDB24.png" />
+    <MezContent Include="AstraDB32.png" />
+    <MezContent Include="AstraDB40.png" />
+    <MezContent Include="AstraDB48.png" />
+    <MezContent Include="AstraDB64.png" />
+    <MezContent Include="AstraDB80.png" />
     <MezContent Include="resources.resx" />
   </ItemGroup>
   <Target Name="BuildMez" AfterTargets="Build" Inputs="@(MezContent)" Outputs="$(MezOutputPath)">

@@ -126,4 +126,32 @@
   <data name="DBTokenFieldName" xml:space="preserve">
     <value>Database Token</value>
   </data>
+  <!-- Error messages -->
+  <data name="AstraDBErrMessageWrongConnParam" xml:space="preserve">
+    <value>Cannot reach Astra DB: connection parameters might be incorrect</value>
+  </data>
+  <data name="AstraDBErrMessageEndpointNotFound" xml:space="preserve">
+    <value>Cannot reach Astra DB: API endpoint not found</value>
+  </data>
+  <data name="AstraDBErrMessageTimeout" xml:space="preserve">
+    <value>Cannot reach Astra DB: a timeout has occurred</value>
+  </data>
+  <data name="AstraDBErrMessageCheckDBStatus" xml:space="preserve">
+    <value>Cannot reach Astra DB: check database status</value>
+  </data>
+  <data name="AstraDBErrMessageUnknownReason" xml:space="preserve">
+    <value>Cannot reach Astra DB: unknown reason</value>
+  </data>
+  <data name="AstraDBErrMessageInsufficientResponse" xml:space="preserve">
+    <value>Insufficient response from Astra DB:</value>
+  </data>
+  <data name="AstraDBErrMessageMalformedResponse" xml:space="preserve">
+    <value>Malformed response from Astra DB: not a valid JSON</value>
+  </data>
+  <data name="AstraDBErrMessageUnexpectedErrorA" xml:space="preserve">
+    <value>Unexpected error with Astra DB. Reason =</value>
+  </data>
+  <data name="AstraDBErrMessageUnexpectedErrorB" xml:space="preserve">
+    <value>. Message (URL) =</value>
+  </data>
 </root>

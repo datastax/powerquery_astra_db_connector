@@ -1,6 +1,6 @@
 // This file contains your Data Connector logic
-[Version = "0.1.1"]
-section #"Astra DB";
+[Version = "0.1.2"]
+section #"AstraDB";
 
 /*
     Library function to make a "navigation table"
@@ -118,7 +118,7 @@ makeRestAPIUrl = (databaseID as text, region as text, optional subpath as text) 
 
 // SCHEMA handling - get all keyspaces
 // This is the "schema-based" call, requiring an across-DB token. Deprecated
-astra_db_connector.getKeyspacesSchemaCall = (databaseID as text, region as text) =>
+AstraDB.getKeyspacesSchemaCall = (databaseID as text, region as text) =>
     let
         keyspacesUrl = makeRestAPIUrl(databaseID, region, "schemas/keyspaces"),
         keyspacesTable = getSinglePage(keyspacesUrl),
@@ -131,7 +131,7 @@ astra_db_connector.getKeyspacesSchemaCall = (databaseID as text, region as text)
         removedSorted = Table.Sort(removed, {"name"}),
         renamed = Table.RenameColumns(removedSorted, {{"name", "Keyspace"}}),
         // Add Data as a calculated column
-        withData = Table.AddColumn(renamed, "Data", each astra_db_connector.getTablesForKeyspace(databaseID, region, [Keyspace])),
+        withData = Table.AddColumn(renamed, "Data", each AstraDB.getTablesForKeyspace(databaseID, region, [Keyspace])),
         // Add ItemKind and ItemName as fixed text values
         withItemKind = Table.AddColumn(withData, "ItemKind", each "View", type text),
         withItemName = Table.AddColumn(withItemKind, "ItemName", each "Table", type text),
@@ -145,7 +145,7 @@ astra_db_connector.getKeyspacesSchemaCall = (databaseID as text, region as text)
 
 // SCHEMA handling - get all keyspaces
 // This is the "system-table-based" call, requiring a regular DB-scoped token. Preferrable
-astra_db_connector.getKeyspacesTableReadCall = (databaseID as text, region as text) =>
+AstraDB.getKeyspacesTableReadCall = (databaseID as text, region as text) =>
     let
         keyspacesUrl = makeRestAPIUrl(databaseID, region, "keyspaces/system_schema/keyspaces/rows"),
         keyspacesTable = Table.GetAllPagesByNextPageState(keyspacesUrl),
@@ -154,7 +154,7 @@ astra_db_connector.getKeyspacesTableReadCall = (databaseID as text, region as te
         removedSorted = Table.Sort(removed, {"keyspace_name"}),
         renamed = Table.RenameColumns(removedSorted, {{"keyspace_name", "Keyspace"}}),
         // Add Data as a calculated column
-        withData = Table.AddColumn(renamed, "Data", each astra_db_connector.getTablesForKeyspace(databaseID, region, [Keyspace])),
+        withData = Table.AddColumn(renamed, "Data", each AstraDB.getTablesForKeyspace(databaseID, region, [Keyspace])),
         // Add ItemKind and ItemName as fixed text values
         withItemKind = Table.AddColumn(withData, "ItemKind", each "View", type text),
         withItemName = Table.AddColumn(withItemKind, "ItemName", each "Table", type text),
@@ -167,7 +167,7 @@ astra_db_connector.getKeyspacesTableReadCall = (databaseID as text, region as te
 ;
 
 // SCHEMA handling - get all tables
-astra_db_connector.getTablesForKeyspace = (databaseID as text, region as text, keyspace as text) =>
+AstraDB.getTablesForKeyspace = (databaseID as text, region as text, keyspace as text) =>
     let
         tablesUrl = makeRestAPIUrl(databaseID, region, "schemas/keyspaces/" & keyspace & "/tables"),
         // This (the 'try' and passing interceptUnauthorized=true) is to catch keyspaces we don't have access to, plus...
@@ -193,7 +193,7 @@ astra_db_connector.getTablesForKeyspace = (databaseID as text, region as text, k
                 removed = Table.SelectColumns(tablesTable, {"name"}),
                 renamed = Table.RenameColumns(removed,{{"name", "Table"}}),
                 // Add Data as a calculated column
-                withData = Table.AddColumn(renamed, "Data", each astra_db_connector.getDataForTable(databaseID, region, keyspace, [Table])),
+                withData = Table.AddColumn(renamed, "Data", each AstraDB.getDataForTable(databaseID, region, keyspace, [Table])),
                 // Add ItemKind and ItemName as fixed text values
                 withItemKind = Table.AddColumn(withData, "ItemKind", each "Table", type text),
                 withItemName = Table.AddColumn(withItemKind, "ItemName", each "Table", type text),
@@ -239,7 +239,7 @@ cqlTypeToMType = (cqlType as text, isMandatory as logical) as type =>
 
 // SCHEMA handling - query Astra REST API and construct a table schema
 // Note: We cannot reuse getSinglePage here since the "data" response field is not a list of records for this endpoint.
-astra_db_connector.getSchemaForTable = (databaseID as text, region as text, keyspace as text, tableName as text) as table =>
+AstraDB.getSchemaForTable = (databaseID as text, region as text, keyspace as text, tableName as text) as table =>
     let
         tableSchemaUrl = makeRestAPIUrl(databaseID, region, "schemas/keyspaces/" & keyspace & "/tables/" & tableName),
         token = Extension.CurrentCredential()[Key],
@@ -344,9 +344,9 @@ getSinglePage = (url as text, optional pageState as text, optional interceptUnau
 ;
 
 // DATA handling - get (paginated) rows for a table
-astra_db_connector.getDataForTable = (databaseID as text, region as text, keyspace as text, tableName as text) =>
+AstraDB.getDataForTable = (databaseID as text, region as text, keyspace as text, tableName as text) =>
     let
-        tableSchema = astra_db_connector.getSchemaForTable(databaseID as text, region as text, keyspace as text, tableName as text),
+        tableSchema = AstraDB.getSchemaForTable(databaseID as text, region as text, keyspace as text, tableName as text),
         tableUrl = makeRestAPIUrl(databaseID, region, "keyspaces/" & keyspace & "/" & tableName & "/rows" & tableUrlPageSizeSpecifier),
         dataTable = Table.GetAllPagesByNextPageState(tableUrl),
         withSchema = SchemaTransformTable(dataTable, tableSchema)
@@ -423,40 +423,39 @@ httpExceptionToErrorMessage = (eReason as text, eMessage as text, requestUrl as 
 
     if eReason = "DataSource.Error" then
         if Text.Contains(eMessage, "be resolved", Comparer.OrdinalIgnoreCase) then
-           error "Cannot reach Astra DB: connection parameters might be incorrect (" & requestUrl & ")"
+            error Extension.LoadString("AstraDBErrMessageWrongConnParam") & " (" & requestUrl & ")"
         else if Text.Contains(eMessage, "not found", Comparer.OrdinalIgnoreCase) then
-           error "Cannot reach Astra DB: API endpoint not found (" & requestUrl & ")"
+            error Extension.LoadString("AstraDBErrMessageEndpointNotFound") & " (" & requestUrl & ")"
         else if Text.Contains(eMessage, "timed out", Comparer.OrdinalIgnoreCase) then
-           error "Cannot reach Astra DB: a timeout has occurred (" & requestUrl & ")"
+            error Extension.LoadString("AstraDBErrMessageTimeout") & " (" & requestUrl & ")"
         else if Text.Contains(eMessage, "bad request", Comparer.OrdinalIgnoreCase) then
-           error "Cannot reach Astra DB: check database status (" & requestUrl & ")"
+            error Extension.LoadString("AstraDBErrMessageCheckDBStatus") & " (" & requestUrl & ")"
         else
-           error "Cannot reach Astra DB: unknown reason """ & eMessage & """ (" & requestUrl & ")"
+            error Extension.LoadString("AstraDBErrMessageUnknownReason") & " """ & eMessage & """" & " (" & requestUrl & ")"
     else if eReason = "Expression.Error" then
-        error "Insufficient response from Astra DB: " & eMessage & " (" & requestUrl & ")"
+        error Extension.LoadString("AstraDBErrMessageInsufficientResponse") & " """ & eMessage & """" & " (" & requestUrl & ")"
     else if eReason = "DataFormat.Error" then
-        error "Malformed response from Astra DB: not a valid JSON (" & requestUrl & ")"
+        error Extension.LoadString("AstraDBErrMessageMalformedResponse") & " (" & requestUrl & ")"
     else
-        error "Unexpected error with Astra DB. Reason = """ & eReason & """. Message = """ & eMessage & """. URL = """ & requestUrl & """."
-
+        error Extension.LoadString("AstraDBErrMessageUnexpectedErrorA") & " """ & eReason & """" & Extension.LoadString("AstraDBErrMessageUnexpectedErrorB") & " """ & eMessage & """" & " (" & requestUrl & ")"
 ;
 
 // Main entrypoint function that gets exposed:
-[DataSource.Kind="astra_db_connector", Publish="astra_db_connector.Publish"]
+[DataSource.Kind="AstraDB", Publish="AstraDB.Publish"]
 // Actual entrypoint
-shared astra_db_connector.Contents = astra_db_connector.getKeyspacesTableReadCall;
-// shared astra_db_connector.Contents = astra_db_connector.getKeyspacesSchemaCall; // Deprecated in favor of the above (which works on a DB-scoped token)
+shared AstraDB.Contents = AstraDB.getKeyspacesTableReadCall;
+// shared AstraDB.Contents = AstraDB.getKeyspacesSchemaCall; // Deprecated in favor of the above (which works on a DB-scoped token)
 //
 // "Tables in a keyspace" entrypoint
-// shared astra_db_connector.Contents = astra_db_connector.getTablesForKeyspace;
+// shared AstraDB.Contents = AstraDB.getTablesForKeyspace;
 //
 // "Data in a table" entrypoint(s)
-// shared astra_db_connector.Contents = astra_db_connector.getDataForTable;
-// shared astra_db_connector.Contents = astra_db_connector.getSchemaForTable;
+// shared AstraDB.Contents = AstraDB.getDataForTable;
+// shared AstraDB.Contents = AstraDB.getSchemaForTable;
 
 // just a call to the Astra DB REST API for TestConnection
-[DataSource.Kind="astra_db_connector"]
-shared astra_db_connector.astraTestConnection = (databaseID as text, region as text) =>
+[DataSource.Kind="AstraDB"]
+shared AstraDB.astraTestConnection = (databaseID as text, region as text) =>
     let
         keyspacesUrl = makeRestAPIUrl(databaseID, region, "keyspaces/system_schema/keyspaces/rows"),
         returned = getSinglePage(keyspacesUrl)
@@ -465,14 +464,14 @@ shared astra_db_connector.astraTestConnection = (databaseID as text, region as t
 ;
 
 // Data Source Kind description
-astra_db_connector = [
+AstraDB = [
     TestConnection = (dataSourcePath) =>
         let
             json = Json.Document(dataSourcePath),
             databaseID = json[databaseID],
             region = json[region]
         in
-            { "astra_db_connector.astraTestConnection", databaseID, region }
+            { "AstraDB.astraTestConnection", databaseID, region }
     ,
     Authentication = [
         Key = [
@@ -483,16 +482,16 @@ astra_db_connector = [
 ];
 
 // Data Source UI publishing description
-astra_db_connector.Publish = [
+AstraDB.Publish = [
     Beta = true,
     Category = "Database",
     ButtonText = { Extension.LoadString("ButtonTitle"), Extension.LoadString("ButtonHelp") },
     LearnMoreUrl = "https://astra.datastax.com/",
-    SourceImage = astra_db_connector.Icons,
-    SourceTypeImage = astra_db_connector.Icons
+    SourceImage = AstraDB.Icons,
+    SourceTypeImage = AstraDB.Icons
 ];
 
-astra_db_connector.Icons = [
-    Icon16 = { Extension.Contents("astra_db_connector16.png"), Extension.Contents("astra_db_connector20.png"), Extension.Contents("astra_db_connector24.png"), Extension.Contents("astra_db_connector32.png") },
-    Icon32 = { Extension.Contents("astra_db_connector32.png"), Extension.Contents("astra_db_connector40.png"), Extension.Contents("astra_db_connector48.png"), Extension.Contents("astra_db_connector64.png") }
+AstraDB.Icons = [
+    Icon16 = { Extension.Contents("AstraDB16.png"), Extension.Contents("AstraDB20.png"), Extension.Contents("AstraDB24.png"), Extension.Contents("AstraDB32.png") },
+    Icon32 = { Extension.Contents("AstraDB32.png"), Extension.Contents("AstraDB40.png"), Extension.Contents("AstraDB48.png"), Extension.Contents("AstraDB64.png") }
 ];
