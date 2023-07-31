@@ -441,19 +441,34 @@ httpExceptionToErrorMessage = (eReason as text, eMessage as text, requestUrl as 
 ;
 
 // Main entrypoint function that gets exposed:
-[DataSource.Kind="AstraDB", Publish="AstraDB.Publish"]
-// Actual entrypoint
-shared AstraDB.Contents = AstraDB.getKeyspacesTableReadCall;
-// shared AstraDB.Contents = AstraDB.getKeyspacesSchemaCall; // Deprecated in favor of the above (which works on a DB-scoped token)
-//
-// "Tables in a keyspace" entrypoint
-// shared AstraDB.Contents = AstraDB.getTablesForKeyspace;
-//
-// "Data in a table" entrypoint(s)
-// shared AstraDB.Contents = AstraDB.getDataForTable;
-// shared AstraDB.Contents = AstraDB.getSchemaForTable;
+getKeyspacesTableReadCallType = type function(
+    databaseID as (type text meta [
+        Documentation.FieldCaption = "Database ID",
+        Documentation.FieldDescription = "The ID of your Astra DB instance",
+        Documentation.SampleValues = {"01234567-89ab-cdef-0123-456789abcdef", "fedcba98-7654-3210-fedc-ba9876543210"}
+    ]),
+    region as (type text meta [
+        Documentation.FieldCaption = "Database Region",
+        Documentation.FieldDescription = "Name of the Region where your Astra DB instance is located",
+        Documentation.SampleValues = { "us-east1", "eu-central-1" }
+    ]))
+    as table meta [
+        Documentation.Name = "Get Keyspace Navigation Table for an Astra DB Instance",
+        Documentation.LongDescription = "Query the Stargate REST API to obtain a Navigation Table of the available data as a DB -> keyspaces -> tables hierarchy.",
+        Documentation.Examples = {[
+            Description = "Construct the Navigation for the Astra DB with ID = '01234567-89ab-cdef-0123-456789abcdef' in region 'us-east1'",
+            Code = "HelloWorldWithDocs.Contents(""01234567-89ab-cdef-0123-456789abcdef"", ""us-east1"")",
+            Result = "(a navigation table with keyspaces and the tables therein)"
+        ]}
+    ];
 
-// just a call to the Astra DB REST API for TestConnection
+[DataSource.Kind="AstraDB", Publish="AstraDB.Publish"]
+shared AstraDB.Contents = Value.ReplaceType(
+    AstraDB.getKeyspacesTableReadCall,
+    getKeyspacesTableReadCallType
+);
+
+// The TestConnection is a call to the Astra DB REST API (for the keyspaces list)
 [DataSource.Kind="AstraDB"]
 shared AstraDB.astraTestConnection = (databaseID as text, region as text) =>
     let
