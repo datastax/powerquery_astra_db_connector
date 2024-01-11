@@ -1,5 +1,5 @@
 // This file contains your Data Connector logic
-[Version = "0.1.2"]
+[Version = "0.1.3"]
 section #"AstraDB";
 
 /*
@@ -291,6 +291,7 @@ getSinglePage = (url as text, optional pageState as text, optional interceptUnau
     // If pageState is passed, it is appended to the URL at the last minute here
     // This function works for paginated requests as well as no-pagination endpoints.
     let
+        escapedPageState = Text.Replace(Text.Replace(pageState, "+", "%2B"), "/", "%2F"),
         token = Extension.CurrentCredential()[Key],
         requestHeaders = [
             accept="application/json",
@@ -299,9 +300,9 @@ getSinglePage = (url as text, optional pageState as text, optional interceptUnau
         requestUrl = if (pageState <> null) then
             // there may be querystring params already, or not - handle this
             if(Text.Contains(url, "?")) then
-                url & "&page-state=" & pageState
+                url & "&page-state=" & escapedPageState
             else
-                url & "?page-state=" & pageState
+                url & "?page-state=" & escapedPageState
         else
             url,
         // handling optional 401 interception
